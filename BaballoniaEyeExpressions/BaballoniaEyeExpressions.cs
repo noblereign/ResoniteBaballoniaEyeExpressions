@@ -1,15 +1,15 @@
-﻿using Elements.Core;
-
+﻿using System.Reflection;
+using System.Reflection.Emit;
+using Elements.Core;
 using FrooxEngine;
 using HarmonyLib;
 using ResoniteModLoader;
-
 using Rug.Osc;
 
 namespace BaballoniaEyeExpressions;
 //More info on creating mods can be found https://github.com/resonite-modding-group/ResoniteModLoader/wiki/Creating-Mods
 public class BaballoniaEyeExpressions : ResoniteMod {
-	internal const string VERSION_CONSTANT = "1.0.1"; //Changing the version here updates it in all locations needed
+	internal const string VERSION_CONSTANT = "2.0.0"; //Changing the version here updates it in all locations needed
 	public override string Name => "BaballoniaEyeExpressions";
 	public override string Author => "Noble";
 	public override string Version => VERSION_CONSTANT;
@@ -17,20 +17,72 @@ public class BaballoniaEyeExpressions : ResoniteMod {
 
 	// instead of using PositiveInfinity like the real code does, I'm just initializing with 0f
 	// would rather the mod do nothing if you're not actually using the expressions build lol
-	public static float leftEyeWiden = 0f;
-	public static float leftEyeBrow = 0f;
-	public static float leftEyeSquint = 0f;
-	public static float leftEyeLower = 0f; // don't think lower is actually used yet, but just covering my bases
+	private static float leftEyeWiden = 0f;
+	private static float leftEyeBrow = 0f;
+	private static float leftEyeSquint = 0f;
+	private static float leftEyePupilDiameter = 4f;
 
-	public static float rightEyeWiden = 0f;
-	public static float rightEyeBrow = 0f;
-	public static float rightEyeSquint = 0f;
-	public static float rightEyeLower = 0f; // don't think lower is actually used yet, but just covering my bases
+	private static float rightEyeWiden = 0f;
+	private static float rightEyeBrow = 0f;
+	private static float rightEyeSquint = 0f;
+	private static float rightEyePupilDiameter = 4f;
 
+	private static BFRLink? _bfrLink;
+	private static BabbleOSC_Driver? _activeDriver;
+	private static MethodInfo? _updateDataMethod;
 
 	public override void OnEngineInit() {
 		Harmony harmony = new("dog.glacier.BaballoniaEyeExpressions");
 		harmony.PatchAll();
+
+		_updateDataMethod = AccessTools.Method(typeof(BabbleOSC_Driver), "UpdateData");
+
+		if (_updateDataMethod == null) {
+			Error("Couldn't find BabbleOSC_Driver.UpdateData! BFRLink can't run!");
+			return;
+		}
+
+		_bfrLink = new BFRLink(ProxyOscMessage);
+		_bfrLink.Start();
+		Engine.Current.OnShutdown += OnEngineShutdown;
+		Msg($"Listening for Babble Frame Runtime on port 6767");
+	}
+
+	private static void OnEngineShutdown() {
+		Engine.Current.RegisterShutdownTask(Task.Run(async () => {
+			Msg("Shutting down BFRLink...");
+			_bfrLink?.Stop();
+			await Task.Delay(250);
+		}));
+	}
+
+	private static void ProxyOscMessage(OscMessage message) {
+		if (_activeDriver == null || _updateDataMethod == null) return;
+
+		try {
+			_updateDataMethod.Invoke(_activeDriver, [message]);
+		} catch (Exception ex) {
+			Error($"Failed to invoke UpdateData: {ex}");
+		}
+	}
+
+	[HarmonyPatch(typeof(BabbleOSC_Driver), "RegisterInputs")] // tell resonite there's pupil tracking (because of BFR)
+	class BabbleOSC_Driver_RegisterInputs_Patch {
+		private static List<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions) {
+			var codes = new List<CodeInstruction>(instructions);
+
+			for (int i = 0; i < codes.Count; i++) {
+				if (codes[i].opcode == OpCodes.Newobj &&
+					codes[i].operand is System.Reflection.ConstructorInfo ctor &&
+					ctor.DeclaringType == typeof(Eyes)) { // frooxengine.eyes created
+					if (codes[i - 1].opcode == OpCodes.Ldc_I4_0) { // pupil tracking false
+						codes[i - 1].opcode = OpCodes.Ldc_I4_1; // become pupil tracking true 👀
+						break;
+					}
+				}
+			}
+			return codes;
+		}
 	}
 
 	[HarmonyPatch(typeof(BabbleOSC_Driver), "UpdateData")]
@@ -80,9 +132,9 @@ public class BaballoniaEyeExpressions : ResoniteMod {
 				case "/leftEyeSquint":
 					leftEyeSquint = OSC_Driver.ReadFloat(message);
 					break;
-				case "/LeftEyeLower":
-				case "/leftEyeLower":
-					leftEyeLower = OSC_Driver.ReadFloat(message);
+				case "/LeftEyeDilation":
+				case "/leftEyeDilation":
+					leftEyePupilDiameter = MathX.Remap(MathX.Clamp01(OSC_Driver.ReadFloat(message)), 0, 1, 2, 8);
 					break;
 				case "/RightEyeWiden":
 				case "/rightEyeWiden":
@@ -96,9 +148,9 @@ public class BaballoniaEyeExpressions : ResoniteMod {
 				case "/rightEyeSquint":
 					rightEyeSquint = OSC_Driver.ReadFloat(message);
 					break;
-				case "/RightEyeLower":
-				case "/rightEyeLower":
-					rightEyeLower = OSC_Driver.ReadFloat(message);
+				case "/RightEyeDilation":
+				case "/rightEyeDilation":
+					rightEyePupilDiameter = MathX.Remap(MathX.Clamp01(OSC_Driver.ReadFloat(message)), 0, 1, 2, 8);
 					break;
 			}
 		}
@@ -127,12 +179,17 @@ public class BaballoniaEyeExpressions : ResoniteMod {
 			float ___rightEyeY,
 			float ___rightEyeLid) {
 
+			if (_activeDriver != __instance) {
+				_activeDriver = __instance;
+			}
+
 			bool isTracking = IsTracking(___lastMessageTime);
 
 			// recreate this cause even though its in the game its not something easily accessible with harmony
 			bool receivedFullEyeData = !(float.IsInfinity(___leftEyeX) || float.IsInfinity(___leftEyeY) || float.IsInfinity(___leftEyeLid) ||
 			                           float.IsInfinity(___rightEyeX) || float.IsInfinity(___rightEyeY) || float.IsInfinity(___rightEyeLid));
 
+			
 			if (!isTracking || !receivedFullEyeData)
 			{
 				___eyes.IsEyeTrackingActive = false;
@@ -140,20 +197,22 @@ public class BaballoniaEyeExpressions : ResoniteMod {
 				return false;
 			}
 
+			
+
 			___eyes.IsTracking = true;
 			___eyes.IsEyeTrackingActive = true;
 
-			UpdateEye(___eyes.LeftEye, ___leftEyeX, ___leftEyeY, ___leftEyeLid, leftEyeWiden, leftEyeSquint, leftEyeBrow, leftEyeLower);
-			UpdateEye(___eyes.RightEye, ___rightEyeX, ___rightEyeY, ___rightEyeLid, rightEyeWiden, rightEyeSquint, rightEyeBrow, rightEyeLower);
+			UpdateEye(___eyes.LeftEye, ___leftEyeX, ___leftEyeY, ___leftEyeLid, leftEyeWiden, leftEyeSquint, leftEyeBrow, leftEyePupilDiameter);
+			UpdateEye(___eyes.RightEye, ___rightEyeX, ___rightEyeY, ___rightEyeLid, rightEyeWiden, rightEyeSquint, rightEyeBrow, rightEyePupilDiameter);
 
-			void UpdateEye(Eye eye, float x, float y, float lid, float wide, float squint, float brow, float lower) {
+			static void UpdateEye(Eye eye, float x, float y, float lid, float wide, float squint, float brow, float diameter) {
 				float z = MathX.Sqrt(1f - (x * x + y * y));
 				eye.UpdateWithDirection(new float3(x, y, z).Normalized);
 				eye.Openness = lid;
 				eye.Widen = wide;
 				eye.Squeeze = squint;
 				eye.InnerBrowVertical = -brow; // Baballonia maps brow to BrowLowerer, so invert the received value since resonite does +1 to -1
-				// literally what was lower used for tho 🤔
+				eye.PupilDiameter = diameter * 0.001f; // Resonite seems to multiply this by 0.001 in the official drivers, so...
 			}
 			return false;
 		}
