@@ -8,7 +8,7 @@ using Rug.Osc;
 namespace BaballoniaEyeExpressions;
 //More info on creating mods can be found https://github.com/resonite-modding-group/ResoniteModLoader/wiki/Creating-Mods
 public class BaballoniaEyeExpressions : ResoniteMod {
-	internal const string VERSION_CONSTANT = "2.1.0"; //Changing the version here updates it in all locations needed
+	internal const string VERSION_CONSTANT = "2.1.1"; //Changing the version here updates it in all locations needed
 	public override string Name => "BaballoniaEyeExpressions";
 	public override string Author => "Noble";
 	public override string Version => VERSION_CONSTANT;
@@ -200,6 +200,7 @@ public class BaballoniaEyeExpressions : ResoniteMod {
 
 			bool altDilation = _config?.GetValue(RaiseDilationRange) ?? false;
 
+			___eyes.SupportsPupilTracking = receivedEyeDilation;
 
 			if (!isTracking || !receivedFullEyeData)
 			{
