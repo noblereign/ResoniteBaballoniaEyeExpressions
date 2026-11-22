@@ -8,7 +8,7 @@ using Rug.Osc;
 namespace BaballoniaEyeExpressions;
 //More info on creating mods can be found https://github.com/resonite-modding-group/ResoniteModLoader/wiki/Creating-Mods
 public class BaballoniaEyeExpressions : ResoniteMod {
-	internal const string VERSION_CONSTANT = "2.1.1"; //Changing the version here updates it in all locations needed
+	internal const string VERSION_CONSTANT = "2.1.2"; //Changing the version here updates it in all locations needed
 	public override string Name => "BaballoniaEyeExpressions";
 	public override string Author => "Noble";
 	public override string Version => VERSION_CONSTANT;
@@ -216,6 +216,7 @@ public class BaballoniaEyeExpressions : ResoniteMod {
 
 			UpdateEye(___eyes.LeftEye, ___leftEyeX, ___leftEyeY, ___leftEyeLid, ___leftEyeWiden, leftEyeSquint, leftEyeBrow, ___leftEyeDilation, receivedEyeDilation, altDilation);
 			UpdateEye(___eyes.RightEye, ___rightEyeX, ___rightEyeY, ___rightEyeLid, ___rightEyeWiden, rightEyeSquint, rightEyeBrow, ___rightEyeDilation, receivedEyeDilation, altDilation);
+			UpdateEye(___eyes.CombinedEye, MathX.Average(___leftEyeX, ___rightEyeX), MathX.Average(___leftEyeY, ___rightEyeY), MathX.Average(___leftEyeLid, ___rightEyeLid), MathX.Average(___leftEyeWiden, ___rightEyeWiden), MathX.Average(leftEyeSquint, rightEyeSquint), MathX.Average(leftEyeBrow, rightEyeBrow), MathX.Average(___leftEyeDilation, ___rightEyeDilation), receivedEyeDilation, altDilation);
 
 			static void UpdateEye(Eye eye, float x, float y, float lid, float wide, float squint, float brow, float diameter, bool receivedEyeDilation, bool altDilation) {
 				float z = MathX.Sqrt(1f - (x * x + y * y));
